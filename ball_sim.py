@@ -7,7 +7,7 @@ from typing import List
 import pygame
 from pygame import mixer
 import math
-import  colorsys
+import colorsys
 
 # pymunk imports
 import pymunk
@@ -17,7 +17,40 @@ from pymunk.pygame_util import DrawOptions
 #TODO: create ball subclass to store individual ball info
 
 class BouncyBalls(object):
-    
+    #Ball subclass
+    class Balls:
+        radius = 0
+        color = (0,0,0)
+        collision_Type = 0
+        mass = 0
+        shape = pymunk.Circle
+        inertia = 0
+        elasticity = 0
+        friction = 0
+        body = pymunk.Body
+        prevLocations: List[pymunk.Poly] = []
+        
+        def getCenter(self):
+            pass
+
+        def __init__(self, myMass,  myRadius, myColor, myElasticity, myFriction):
+                self.mass = myMass
+                self.radius = myRadius
+                offset =  [0,0]
+                self.inertia = pymunk.moment_for_circle(myMass,0,myRadius,offset)
+                self.body = pymunk.Body(myMass, self.inertia)
+                self.collision_type = self.body.collision_type =0
+
+                self.shape = pymunk.Circle(self.body, self.radius, (0, 0))
+                self.shape.elasticity = myElasticity
+                self.shape.friction = myFriction
+
+                self.color = pygame.Color(myColor)
+
+                self.shape.collision_type = self.collision_Type
+                self.shape.color = self.color
+
+        
             #rectangles that exist in the world
     _rectangles: List[pymunk.Poly] = []
 
@@ -30,17 +63,17 @@ class BouncyBalls(object):
     y_pixel = 1280
 
     num_balls=0
-    max_balls = 150
+    max_balls = 2
     boundary_info = {
-        "x_offset": 300,
-        "y_offset": 300,
+        "x_offset": x_pixel/2,
+        "y_offset": y_pixel/2,
         "radius": x_pixel/2.5,
         "line_weight": 3,
     }
 
-    ball_color_R = 0
-    ball_color_G = 0
-    ball_color_B = 0
+    ball_color_R = 255
+    ball_color_G = 250
+    ball_color_B = 228
     radius = 0
 
     """
@@ -61,6 +94,7 @@ class BouncyBalls(object):
     def get_background(self):
         return self.color
     
+    newBalls =[]
     def __init__(self) -> None:
         # Space
         self._space = pymunk.Space()
@@ -82,6 +116,8 @@ class BouncyBalls(object):
         
 
         self._screen = pygame.display.set_mode((self.x_pixel, self.y_pixel))
+        self._surface = pygame.Surface((self.x_pixel, self.y_pixel),pygame.SRCALPHA)
+
 
         self.color=[0,0,0]
 
@@ -93,8 +129,7 @@ class BouncyBalls(object):
         self._add_static_scenery()
 
         # Balls that exist in the world
-        self._balls: List[pymunk.Circle] = []
-
+       # self._balls = []
         #rectangles that exist in the world
         #self._rectangles: List[pymunk.Poly] = []
 
@@ -102,8 +137,11 @@ class BouncyBalls(object):
         self._running = True
 
         #generate 2 balls to start
-        self._create_ball()
-        self._create_ball()
+        numBalls = 8
+        for i in range(numBalls):
+            self.newBalls.append(self._create_ball())
+        #self._balls = [self.Balls() for i in range(numBalls)]
+
 
     def run(self) -> None:
         """
@@ -123,6 +161,7 @@ class BouncyBalls(object):
             self._draw_objects()
             pygame.display.flip()
 
+
             #function which decides ball-ball collision outcomes
             def ball_collision(arbiter, space, data):
                 self._create_ball()
@@ -133,7 +172,7 @@ class BouncyBalls(object):
             #function which decides ball-wall collision outcomes. Fires after collision
             def wall_collision(arbiter, space, data):
                 mysound=pygame.mixer.Sound("F:/steel-drum-4.wav")
-                mysound.set_volume(arbiter.total_impulse.__abs__()/100000)
+                mysound.set_volume(1)
                 pygame.mixer.find_channel().play(mysound)
 
 
@@ -203,22 +242,20 @@ class BouncyBalls(object):
     def _flip_y(self,y):
         return -y + self.y_pixel
 
+
     def _update_balls(self) -> None:
         """
         Create/remove balls as necessary. Call once per frame only.
         :return: None
+
         """
+        
         #remove balls if there are too many
-        if(self.num_balls>self.max_balls):
-            balls_to_remove = [ball for ball in self._balls]
-
+        #if(self.num_balls>self.max_balls):
             #for ball in balls_to_remove:
-            for i in range(self.num_balls-self.max_balls):
-                ball=balls_to_remove[i]
-                self._space.remove(ball, ball.body)
-                self._balls.remove(ball)
-                self.num_balls-=1
-
+        for i in range(self.num_balls-self.max_balls):
+            self.delete_ball(self.newBalls[0])
+        
     #Wrapper for _create_wall which makes arguments consistent with generating static lines 
     def _create_wall_helper(self,x1, y1, x2, y2, line_weight) -> None:
         angle = math.atan2((y2-y1),(x2-x1))
@@ -247,56 +284,47 @@ class BouncyBalls(object):
         self._rectangles.append(wall_shape)
 
     #Create ball objects
-    def _create_ball(self) -> None:
-        mult = random.randint(8,15)/10
-        mass = 10*mult
-        self.radius = 10
-        inertia = pymunk.moment_for_circle(mass, 0, self.radius/50, (0, 0))
-        body = pymunk.Body(mass, inertia)
-        body.collision_type =0
+    def _create_ball(self):        
+        myBall = self.Balls(10,10,(255,250,228),1,0)
+        self._space.add(myBall.body,myBall.shape)
+       # self._balls.append(myBall)
 
-#sets spawn point of balls by selecting a random point in polar coordinates within the bounding circle
+        #sets spawn point of balls by selecting a random point in polar coordinates within the bounding circle
         #values are hard coded, should be changed to automatically match generate_circle params [Incircle of a Polygon]
         angle = random.randint(0,360)
-        length = random.randint(self.boundary_info["radius"] - 50,self.boundary_info["radius"] - 50)
+        max_length = (self.boundary_info["radius"] -myBall.radius)
+        length = (random.uniform(0,max_length))
 
         x = length*math.cos(angle*math.pi/180)
         y = length*math.sin(angle*math.pi/180)        
-        body.position = x+self.x_pixel/2, y+self.y_pixel/2
+        myBall.body.position = x+self.x_pixel/2, y+self.y_pixel/2
 
-        shape = pymunk.Circle(body, self.radius, (0, 0))
-        shape.elasticity = 1.0
-        shape.friction = 0
-
-        #set the color of a new circle to something random (RGB)
-        self.ball_color_R = random.randint(100,255)
-        self.ball_color_G = random.randint(30,50)
-        self.ball_color_B = random.randint(200,255)
-
-        shape.color = pygame.Color(self.ball_color_R,self.ball_color_G,self.ball_color_B)
-
-        shape.collision_type = self.collision_types["ball"]
-        self._space.add(body, shape)
-        self._balls.append(shape)
-
+       # self._balls.append(myBall)
         self.num_balls+=1
+        return myBall
 
     vals=0
+
+    def delete_ball(self,myBall):
+        self._space.remove(myBall.shape,myBall.body)
+        self.newBalls.pop(self.newBalls.index(myBall))
+        self.num_balls-=1
 
     def ball_boundary_collision(self):
         #TODO: :Limit to one execution per boundary collision
         #Check for change in velocity position
         if(True):
-            for ball in self._balls:
+            for ball in self.newBalls:
                 p = ball.body.position
                 x = p.x -self.x_pixel/2
                 y = p.y - self.y_pixel/2
                 dist = math.sqrt((x**2)+(y**2))
 
-
-                if(dist>277.45 and True):
-                    mysound=pygame.mixer.Sound("F:/steel-drum-4.wav")
-                    pygame.mixer.find_channel().play(mysound)
+                #TODO: Add change in velocity direction check
+                if(dist>(self.boundary_info["radius"]-ball.radius-13) and True):
+                    ball.color=self.wall_color
+                    #mysound=pygame.mixer.Sound("F:/steel-drum-4.wav")
+                    #pygame.mixer.find_channel().play(mysound)
                 
 
     def testball_collision(space, arbiter, dummy):
@@ -311,15 +339,24 @@ class BouncyBalls(object):
         :return: None
         """
         self._screen.fill(pygame.Color(self.get_background()))
+       # self._surface.fill(pygame.Color(self.get_background()))
 
     def _draw_circles(self) -> None:
-        for ball in self._balls:
-            color = (self.ball_color_R,self.ball_color_G,self.ball_color_B)
+        for ball in self.newBalls:
+            #TODO: Change this to ball.getCenter() function
             p = ball.body.position
             p = pymunk.Vec2d(p.x,p.y)
             center = (round(p.x), round(p.y))
+            ball.getCenter()
             surface = self._screen
-            pygame.draw.circle(surface,color,center,self.radius)
+            pygame.draw.circle(surface,ball.color,center,ball.radius)
+            """
+            #color2=(self.ball_color_R,self.ball_color_G,self.ball_color_B,100)
+            color2 = list(self.gen_color(pygame.time.get_ticks()/10%255))
+            color2.append(50)
+            color2 = tuple(color2)
+            pygame.draw.circle(surface,color2,center,self.radius*1.5,5)
+            """
 
 
     def gen_color(self,phase_shift):
@@ -343,28 +380,14 @@ class BouncyBalls(object):
         return (r, g, b)
 
 
-    lastTime = 0
     wall_color = pygame.Color("grey")
 
-    i = 0
     change = 1
 
     def _draw_circle_border(self) -> None:
         
-        curTime = pygame.time.get_ticks()
-        
-        if (curTime-self.lastTime>50):
-            self.lastTime=curTime
 
-
-            self.wall_color = self.gen_color(self.i)
-
-
-            self.i+=self.change
-            if(self.i>254 or self.i<1):
-                self.change*=-1
-
-
+        self.wall_color=self.gen_color(pygame.time.get_ticks()/100%255)
 
         center = (self.x_pixel/2, self.y_pixel/2)
         surface = self._screen
