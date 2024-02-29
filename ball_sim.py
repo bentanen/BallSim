@@ -14,11 +14,14 @@ import pymunk
 import pymunk.pygame_util
 from pymunk.pygame_util import DrawOptions
 
+
 #TODO: create ball subclass to store individual ball info
 
 class BouncyBalls(object):
     #Ball subclass
     class Balls:
+        from queue import Queue
+
         radius = 0
         color = (0,0,0)
         collision_Type = 0
@@ -28,18 +31,25 @@ class BouncyBalls(object):
         elasticity = 0
         friction = 0
         body = pymunk.Body
-        prevLocations: List[pymunk.Poly] = []
+
+        maxSize=600
+        prevLocations = Queue(maxSize)
+        prevColors = Queue(maxSize)
+        #queue.prevLocations(10)
         
         def getCenter(self):
-            pass
+            p = self.body.position
+            p = pymunk.Vec2d(p.x,p.y)
+            return (round(p.x), round(p.y))
 
-        def __init__(self, myMass,  myRadius, myColor, myElasticity, myFriction):
+
+        def __init__(self, myMass,  myRadius, myColor, myElasticity, myFriction,myCollisionType):
                 self.mass = myMass
                 self.radius = myRadius
                 offset =  [0,0]
                 self.inertia = pymunk.moment_for_circle(myMass,0,myRadius,offset)
                 self.body = pymunk.Body(myMass, self.inertia)
-                self.collision_type = self.body.collision_type =0
+                self.collision_type = self.body.collision_type =myCollisionType
 
                 self.shape = pymunk.Circle(self.body, self.radius, (0, 0))
                 self.shape.elasticity = myElasticity
@@ -57,13 +67,14 @@ class BouncyBalls(object):
     collision_types = {
     "ball": 1,
     "wall":2,
+    "death-ball":3,
     }
     
     x_pixel=720
     y_pixel = 1280
 
     num_balls=0
-    max_balls = 2
+    max_balls = 8
     boundary_info = {
         "x_offset": x_pixel/2,
         "y_offset": y_pixel/2,
@@ -95,6 +106,7 @@ class BouncyBalls(object):
         return self.color
     
     newBalls =[]
+    deathBalls = []
     def __init__(self) -> None:
         # Space
         self._space = pymunk.Space()
@@ -136,11 +148,14 @@ class BouncyBalls(object):
         # Execution control and time until the next ball spawns
         self._running = True
 
-        #generate 2 balls to start
-        numBalls = 8
+        #generate balls to start
+        numBalls = 3
         for i in range(numBalls):
             self.newBalls.append(self._create_ball())
         #self._balls = [self.Balls() for i in range(numBalls)]
+            
+        #create death ball
+        self._create_death()
 
 
     def run(self) -> None:
@@ -174,6 +189,11 @@ class BouncyBalls(object):
                 mysound=pygame.mixer.Sound("F:/steel-drum-4.wav")
                 mysound.set_volume(1)
                 pygame.mixer.find_channel().play(mysound)
+            
+            #function which decides death ball-ball collision outcomes. Fires after collision
+            def death_collision(arbiter, space, data):
+                self.delete_ball(arbiter[0])
+                self.delete_ball(arbiter[1])
 
 
             h = self._space.add_collision_handler(self.collision_types["ball"],self.collision_types["ball"])
@@ -181,6 +201,9 @@ class BouncyBalls(object):
 
             b = self._space.add_collision_handler(self.collision_types["ball"],self.collision_types["wall"])
             b.post_solve = wall_collision
+
+            c = self._space.add_collision_handler(self.collision_types["death-ball"],self.collision_types["ball"])
+            c.post_solve = death_collision
 
             # Delay fixed time between frames
             self._clock.tick(self.get_FPS())
@@ -249,12 +272,19 @@ class BouncyBalls(object):
         :return: None
 
         """
+        #update the previous location for balls
+        for ball in self.newBalls:
+            val = ball.getCenter()
+            while(ball.prevLocations.qsize()>=ball.maxSize):
+                ball.prevLocations.get()
+                ball.prevColors.get()
+            ball.prevLocations.put(val)
+            ball.prevColors.put(ball.color)
+
         
         #remove balls if there are too many
-        #if(self.num_balls>self.max_balls):
-            #for ball in balls_to_remove:
         for i in range(self.num_balls-self.max_balls):
-            self.delete_ball(self.newBalls[0])
+            self.delete_ball(self.newBalls[i])
         
     #Wrapper for _create_wall which makes arguments consistent with generating static lines 
     def _create_wall_helper(self,x1, y1, x2, y2, line_weight) -> None:
@@ -283,9 +313,16 @@ class BouncyBalls(object):
         self._space.add(wall_body, wall_shape)
         self._rectangles.append(wall_shape)
 
+    #create death ball object
+    def _create_death(self):
+        myDeath = self.Balls(50,50,(0,0,0),1,0,self.collision_types["death-ball"])
+        self._space.add(myDeath.body,myDeath.shape)
+        myDeath.body.position = self.x_pixel/2, self.y_pixel/2
+        self.deathBalls.append(myDeath)
+
     #Create ball objects
     def _create_ball(self):        
-        myBall = self.Balls(10,10,(255,250,228),1,0)
+        myBall = self.Balls(10,10,(255,250,228),1,0,self.collision_types["ball"])
         self._space.add(myBall.body,myBall.shape)
        # self._balls.append(myBall)
 
@@ -305,6 +342,7 @@ class BouncyBalls(object):
 
     vals=0
 
+    #deletes a ball from the given Ball object -> doesnt check for deathball
     def delete_ball(self,myBall):
         self._space.remove(myBall.shape,myBall.body)
         self.newBalls.pop(self.newBalls.index(myBall))
@@ -319,6 +357,8 @@ class BouncyBalls(object):
                 x = p.x -self.x_pixel/2
                 y = p.y - self.y_pixel/2
                 dist = math.sqrt((x**2)+(y**2))
+
+                #prevLocation
 
                 #TODO: Add change in velocity direction check
                 if(dist>(self.boundary_info["radius"]-ball.radius-13) and True):
@@ -341,22 +381,38 @@ class BouncyBalls(object):
         self._screen.fill(pygame.Color(self.get_background()))
        # self._surface.fill(pygame.Color(self.get_background()))
 
+    def _draw_trail(self,ball,surface):
+        #surface = self._screen
+        size = ball.prevLocations.qsize()
+        for i in range(size):
+            if(True):#(i%step==0):
+                location = ball.prevLocations.queue[size-1-i]
+                color = ball.prevColors.queue[size-1-i]
+                #darken the color the further it is away from the ball
+                r=list(color)[0]
+                g=list(color)[1]
+                b=list(color)[2]
+                color=(r*0.97**i,g*0.97**i,b*0.97**i)
+                #reduce the trail radius the further it is away from the ball
+                radius = ball.radius*0.97**i
+                pygame.draw.circle(surface,color,location,radius)
+                       
+
     def _draw_circles(self) -> None:
-        for ball in self.newBalls:
-            #TODO: Change this to ball.getCenter() function
-            p = ball.body.position
-            p = pymunk.Vec2d(p.x,p.y)
-            center = (round(p.x), round(p.y))
-            ball.getCenter()
+        for death in self.deathBalls:
             surface = self._screen
-            pygame.draw.circle(surface,ball.color,center,ball.radius)
-            """
-            #color2=(self.ball_color_R,self.ball_color_G,self.ball_color_B,100)
-            color2 = list(self.gen_color(pygame.time.get_ticks()/10%255))
-            color2.append(50)
-            color2 = tuple(color2)
-            pygame.draw.circle(surface,color2,center,self.radius*1.5,5)
-            """
+            pygame.draw.circle(surface,death.color,death.getCenter(),death.radius)
+            #generate outside color ranging smoothly from red->orange and back
+            color2 = self.gen_color((3*math.sin(pygame.time.get_ticks()/1000)+3))
+            pygame.draw.circle(surface,color2,death.getCenter(),death.radius,2)
+
+        for ball in self.newBalls:
+            surface = self._screen
+            self._draw_trail(ball,surface)
+            pygame.draw.circle(surface,ball.color,ball.getCenter(),ball.radius)
+            
+            
+            
 
 
     def gen_color(self,phase_shift):
