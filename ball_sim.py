@@ -32,7 +32,7 @@ class BouncyBalls(object):
         friction = 0
         body = pymunk.Body
 
-        maxSize=600
+        maxSize=60
         prevLocations = Queue(maxSize)
         prevColors = Queue(maxSize)
         #queue.prevLocations(10)
@@ -47,7 +47,7 @@ class BouncyBalls(object):
                 self.mass = myMass
                 self.radius = myRadius
                 offset =  [0,0]
-                self.inertia = pymunk.moment_for_circle(myMass,0,myRadius,offset)
+                self.inertia = pymunk.moment_for_circle(myMass,0,myRadius,offset)*random.randint(1,5)
                 self.body = pymunk.Body(myMass, self.inertia)
                 self.collision_type = self.body.collision_type =myCollisionType
 
@@ -74,7 +74,7 @@ class BouncyBalls(object):
     y_pixel = 1280
 
     num_balls=0
-    max_balls = 8
+    max_balls = 20
     boundary_info = {
         "x_offset": x_pixel/2,
         "y_offset": y_pixel/2,
@@ -141,15 +141,12 @@ class BouncyBalls(object):
         self._add_static_scenery()
 
         # Balls that exist in the world
-       # self._balls = []
-        #rectangles that exist in the world
-        #self._rectangles: List[pymunk.Poly] = []
 
         # Execution control and time until the next ball spawns
         self._running = True
 
         #generate balls to start
-        numBalls = 3
+        numBalls = 20
         for i in range(numBalls):
             self.newBalls.append(self._create_ball())
         #self._balls = [self.Balls() for i in range(numBalls)]
@@ -172,6 +169,7 @@ class BouncyBalls(object):
             self._process_events()
             self._update_balls()
             self.ball_boundary_collision()
+            self.ball_death_collision()
             self._clear_screen()
             self._draw_objects()
             pygame.display.flip()
@@ -245,15 +243,16 @@ class BouncyBalls(object):
         Create the static bodies.
         :return: None
         """
-        #self._create_circle_obj(self.x_pixel/2,self.y_pixel/2,self.x_pixel/3,10)
         self.create_circle(self.boundary_info["radius"],100,self.x_pixel/2,self.y_pixel/2,0)
 
-    
     def _process_events(self) -> None:
         """
         Handle game and events like keyboard input. Call once per frame only.
         :return: None
         """
+        if(len(self.newBalls)==0 and pygame.time.get_ticks()%900==0):
+            self._running = False
+            
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self._running = False
@@ -306,7 +305,7 @@ class BouncyBalls(object):
         rotation = pymunk.Transform(math.cos(angle),math.sin(angle),-math.sin(angle),math.cos(angle),0,0)
         
         wall_shape = pymunk.Poly(wall_body, [(-width/2,-height/2),(width/2,-height/2),(width/2,height/2),(-width/2,height/2)],rotation,radius=0)
-        wall_shape.elasticity = 1.0
+        wall_shape.elasticity = 1
         wall_shape.color = pygame.Color("grey")
         wall_shape.group = 1
         wall_shape.collision_type = self.collision_types["wall"]
@@ -336,7 +335,6 @@ class BouncyBalls(object):
         y = length*math.sin(angle*math.pi/180)        
         myBall.body.position = x+self.x_pixel/2, y+self.y_pixel/2
 
-       # self._balls.append(myBall)
         self.num_balls+=1
         return myBall
 
@@ -347,6 +345,28 @@ class BouncyBalls(object):
         self._space.remove(myBall.shape,myBall.body)
         self.newBalls.pop(self.newBalls.index(myBall))
         self.num_balls-=1
+
+    def ball_death_collision(self):
+            for death in self.deathBalls:
+                death_pos = death.body.position
+                d_x = death_pos.x-self.x_pixel/2
+                d_y=death_pos.y-self.y_pixel/2
+
+                x_offset = death.radius
+                y_offset = death.radius
+                for ball in self.newBalls:
+                    p = ball.body.position
+                    x = p.x - round(self.x_pixel/2)
+                    y = p.y - round(self.y_pixel/2)
+
+                    x_offset+=ball.radius
+                    y_offset+=ball.radius
+
+                    #TODO: Add change in velocity direction check
+                    if(abs(d_x-x)<x_offset and abs(d_y-y)<y_offset):
+                        self.delete_ball(ball)
+                        mysound=pygame.mixer.Sound("F:/impact-6291.wav")
+                        pygame.mixer.find_channel().play(mysound)
 
     def ball_boundary_collision(self):
         #TODO: :Limit to one execution per boundary collision
@@ -381,20 +401,24 @@ class BouncyBalls(object):
         self._screen.fill(pygame.Color(self.get_background()))
        # self._surface.fill(pygame.Color(self.get_background()))
 
+    def darken(self,color,intensity,i):
+                r=list(color)[0]
+                g=list(color)[1]
+                b=list(color)[2]
+                return (r*intensity**i,g*intensity**i,b*intensity**i)
+
     def _draw_trail(self,ball,surface):
-        #surface = self._screen
+        #TODO: Draw from tail too tip in order to avoid 3d tail appearance
         size = ball.prevLocations.qsize()
         for i in range(size):
             if(True):#(i%step==0):
                 location = ball.prevLocations.queue[size-1-i]
                 color = ball.prevColors.queue[size-1-i]
                 #darken the color the further it is away from the ball
-                r=list(color)[0]
-                g=list(color)[1]
-                b=list(color)[2]
-                color=(r*0.97**i,g*0.97**i,b*0.97**i)
+                intensity = 0.97
+                color=self.darken(color,intensity**2,i)
                 #reduce the trail radius the further it is away from the ball
-                radius = ball.radius*0.97**i
+                radius = ball.radius*intensity**i
                 pygame.draw.circle(surface,color,location,radius)
                        
 
