@@ -321,7 +321,7 @@ class BouncyBalls(object):
 
     #Create ball objects
     def _create_ball(self):        
-        myBall = self.Balls(10,10,(255,250,228),1,0,self.collision_types["ball"])
+        myBall = self.Balls(10,10,self.gen_color(random.randint(0,500)),1,0,self.collision_types["ball"])
         self._space.add(myBall.body,myBall.shape)
        # self._balls.append(myBall)
 
