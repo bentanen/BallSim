@@ -8,6 +8,7 @@ import pygame
 from pygame import mixer
 import math
 import colorsys
+import itertools
 
 # pymunk imports
 import pymunk
@@ -31,6 +32,10 @@ class BouncyBalls(object):
         elasticity = 0
         friction = 0
         body = pymunk.Body
+        #changes in angle are useful for detecting a collision has just occured. This check happens with multiple objects, so multiple previous angles are needed
+        #Later all collision checks should probably be combined into one function: Check for angle change, then check for overlap
+        prevAngle = 0
+        prevAngle2 = 0
 
         maxSize=60
         prevLocations = Queue(maxSize)
@@ -60,6 +65,12 @@ class BouncyBalls(object):
                 self.shape.collision_type = self.collision_Type
                 self.shape.color = self.color
 
+                #give the ball a random starting velocity
+                if(myCollisionType!=3):
+                    self.shape.body.velocity = ([-1,1][random.randrange(2)]*random.randint(300,500), [-1,1][random.randrange(2)]*random.randint(300,500))
+                else:
+                    self.shape.body.velocity = ([-1,1][random.randrange(2)]*random.randint(100,200), [-1,1][random.randrange(2)]*random.randint(100,200))
+                   
         
             #rectangles that exist in the world
     _rectangles: List[pymunk.Poly] = []
@@ -74,7 +85,7 @@ class BouncyBalls(object):
     y_pixel = 1280
 
     num_balls=0
-    max_balls = 20
+    max_balls = 200
     boundary_info = {
         "x_offset": x_pixel/2,
         "y_offset": y_pixel/2,
@@ -105,12 +116,17 @@ class BouncyBalls(object):
     def get_background(self):
         return self.color
     
+    #stores all the ball objects in the space for later accessing
     newBalls =[]
+    #stores all the death ball objects in the space for later accessing
     deathBalls = []
+    #stores every combination of ball objects in the space so that ball-ball combinations can later be checked without double checks
+    ballCombinations=[]
+
     def __init__(self) -> None:
         # Space
         self._space = pymunk.Space()
-        self._space.gravity = (0.0, 900.0)
+        self._space.gravity = (0.0, 0.0)
 
 
         # Physics
@@ -146,14 +162,22 @@ class BouncyBalls(object):
         self._running = True
 
         #generate balls to start
-        numBalls = 20
+        numBalls = 2
         for i in range(numBalls):
-            self.newBalls.append(self._create_ball())
+            self.spawn_ball()
+
         #self._balls = [self.Balls() for i in range(numBalls)]
             
         #create death ball
-        self._create_death()
+        #self._create_death()
+            
+    def spawn_ball(self):
+        self.newBalls.append(self._create_ball())
+        self.ballCombinations=(list(itertools.combinations(self.newBalls,2)).copy())
 
+    def spawn_death(self):
+        if(len(self.deathBalls)==0 and pygame.time.get_ticks()>20000):
+            self._create_death()
 
     def run(self) -> None:
         """
@@ -165,11 +189,14 @@ class BouncyBalls(object):
             # Progress time forward
             for x in range(self._physics_steps_per_frame):
                 self._space.step(self._dt)
-
+            self.spawn_death()
             self._process_events()
             self._update_balls()
+            
             self.ball_boundary_collision()
+            self.death_boundary_collision()
             self.ball_death_collision()
+            self.ball_ball_collision()
             self._clear_screen()
             self._draw_objects()
             pygame.display.flip()
@@ -274,7 +301,7 @@ class BouncyBalls(object):
         #update the previous location for balls
         for ball in self.newBalls:
             val = ball.getCenter()
-            while(ball.prevLocations.qsize()>=ball.maxSize):
+            while(ball.prevLocations.qsize()>ball.maxSize-1):
                 ball.prevLocations.get()
                 ball.prevColors.get()
             ball.prevLocations.put(val)
@@ -314,7 +341,7 @@ class BouncyBalls(object):
 
     #create death ball object
     def _create_death(self):
-        myDeath = self.Balls(50,50,(0,0,0),1,0,self.collision_types["death-ball"])
+        myDeath = self.Balls(500,20,(0,0,0),1,0,self.collision_types["death-ball"])
         self._space.add(myDeath.body,myDeath.shape)
         myDeath.body.position = self.x_pixel/2, self.y_pixel/2
         self.deathBalls.append(myDeath)
@@ -336,6 +363,7 @@ class BouncyBalls(object):
         myBall.body.position = x+self.x_pixel/2, y+self.y_pixel/2
 
         self.num_balls+=1
+
         return myBall
 
     vals=0
@@ -349,8 +377,8 @@ class BouncyBalls(object):
     def ball_death_collision(self):
             for death in self.deathBalls:
                 death_pos = death.body.position
-                d_x = death_pos.x-self.x_pixel/2
-                d_y=death_pos.y-self.y_pixel/2
+                d_x = death_pos.x-round(self.x_pixel/2)
+                d_y=death_pos.y-round(self.y_pixel/2)
 
                 x_offset = death.radius
                 y_offset = death.radius
@@ -368,6 +396,69 @@ class BouncyBalls(object):
                         mysound=pygame.mixer.Sound("F:/impact-6291.wav")
                         pygame.mixer.find_channel().play(mysound)
 
+    def death_boundary_collision(self):
+        for death in self.deathBalls:
+            p = death.body.position
+            x = p.x -self.x_pixel/2
+            y = p.y - self.y_pixel/2
+            dist = math.sqrt((x**2)+(y**2))
+
+                #prevLocation
+            angle = math.atan2(death.body.velocity.y,death.body.velocity.x)
+                
+                #TODO: get rid of double bounce on first hit
+            if(dist>(self.boundary_info["radius"]-death.radius-8) and abs(angle-death.prevAngle)>0.5):
+                mysound=pygame.mixer.Sound("F:/ping-contact-cinematic-trailer-sound-effects-124764_lower.wav")
+                pygame.mixer.find_channel().play(mysound)
+                death.prevAngle = angle
+
+#consolidate all of the collision checks to prevent interference between checks
+    def collisions(self):
+        #check for overlap of each item type
+        #check for location change
+        #check for angle change
+        pass
+
+
+#TODO: fix collisions with newly spawned balls not registering
+    def ball_ball_collision(self):
+        #check each combination of 2 balls for a collision [(a,b) == (b,a)]
+        for set in self.ballCombinations:
+            #set cartesian coordinates
+            p1 = set[0].body.position
+            x1 = p1.x -self.x_pixel/2
+            y1 = p1.y - self.y_pixel/2
+            p2 = set[1].body.position
+            x2 = p2.x -self.x_pixel/2
+            y2 = p2.y - self.y_pixel/2
+
+            #locational check parameters
+            combinedRad = set[0].radius+set[1].radius
+            resolution = 8e-2
+
+            #previous cartesian coordinates of each ball
+            prevx1 = set[0].prevLocations.queue[0][0]-self.x_pixel/2
+            prevy1 = set[0].prevLocations.queue[0][1]- self.y_pixel/2
+            prevx2 = set[1].prevLocations.queue[0][0]-self.x_pixel/2
+            prevy2 = set[1].prevLocations.queue[0][1]- self.y_pixel/2
+
+            #previous angle of each ball
+            angle1 = math.atan2(set[0].body.velocity.y,set[0].body.velocity.x)
+            angle2 = math.atan2(set[1].body.velocity.y,set[1].body.velocity.x)
+
+            """
+            check that the xy coordinates have changed -> prevents multiple checks per main loop
+            check that the angle has changed -> prevents multiple checks per physics step
+            check that the ball locations overlap -> there is a collision
+            """
+            if((prevx1!=x1 or prevy1 != y1) and (prevx2!=x2 or prevy2 != y2) and(set[0].prevAngle2 != angle1) and(set[1].prevAngle2 != angle2)):
+                if(abs(x1-x2)<combinedRad+resolution and abs(y1-y2)<combinedRad+resolution):
+                    self.spawn_ball()
+            set[0].prevAngle2 = angle1
+            set[1].prevAngle2 = angle2
+
+    
+
     def ball_boundary_collision(self):
         #TODO: :Limit to one execution per boundary collision
         #Check for change in velocity position
@@ -379,12 +470,14 @@ class BouncyBalls(object):
                 dist = math.sqrt((x**2)+(y**2))
 
                 #prevLocation
-
+                angle = math.atan2(ball.body.velocity.y,ball.body.velocity.x)
+                
                 #TODO: Add change in velocity direction check
-                if(dist>(self.boundary_info["radius"]-ball.radius-13) and True):
+                if(dist>(self.boundary_info["radius"]-ball.radius-13) and angle != ball.prevAngle):
                     ball.color=self.wall_color
-                    #mysound=pygame.mixer.Sound("F:/steel-drum-4.wav")
-                    #pygame.mixer.find_channel().play(mysound)
+                    mysound=pygame.mixer.Sound("F:/ping-contact-cinematic-trailer-sound-effects-124764.wav")
+                    pygame.mixer.find_channel().play(mysound)
+                ball.prevAngle = angle
                 
 
     def testball_collision(space, arbiter, dummy):
@@ -408,10 +501,10 @@ class BouncyBalls(object):
                 return (r*intensity**i,g*intensity**i,b*intensity**i)
 
     def _draw_trail(self,ball,surface):
-        #TODO: Draw from tail too tip in order to avoid 3d tail appearance
+        #TODO: There is a dependence on the number of balls and the trail behaviour. Fix this
+            #length of trail gets longer the less balls there are
         size = ball.prevLocations.qsize()
         for i in range(size):
-            if(True):#(i%step==0):
                 location = ball.prevLocations.queue[size-1-i]
                 color = ball.prevColors.queue[size-1-i]
                 #darken the color the further it is away from the ball
